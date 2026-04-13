@@ -13,8 +13,8 @@
 #  TELEGRAM CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 # Get your bot token from @BotFather on Telegram
-TG_BOT_TOKEN = "ADD_BOT_TOKEN_HERE"
-TG_CHAT_ID   = "ADD_CHAT_ID_HERE"
+TG_BOT_TOKEN = "your_bot_token"
+TG_CHAT_ID   = "your_chat_id"
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  AUDIERA API KEYS
@@ -22,7 +22,7 @@ TG_CHAT_ID   = "ADD_CHAT_ID_HERE"
 # Get your API keys from https://ai.audiera.fi
 AUDIERA_KEYS = [
     {
-        "key": "ADD_YOUR_API_KEY_HERE",
+        "key": "your_audira_api_key",
         "status": "active"
     },
     # Add more keys here for multi-key rotation:
@@ -36,7 +36,7 @@ AUDIERA_MODE = "single"
 #  WALLET CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 # Your EVM wallet address for receiving $BEAT tokens
-EVM_ADDRESS   = "ADD_YOUR_EVM_ADDRESS"
+EVM_ADDRESS   = "your_wallet_address"
 
 # BEAT token contract address
 BEAT_CONTRACT = "0xcf3232b85b43bca90e51d38cc06cc8bb8c8a3e36"
@@ -45,7 +45,7 @@ BEAT_CONTRACT = "0xcf3232b85b43bca90e51d38cc06cc8bb8c8a3e36"
 #  AGENT IDENTITY
 # ═══════════════════════════════════════════════════════════════════════════════════
 AGENT_NAME    = "🎵 Audiera"
-AGENT_VERSION = "3.0.0"
+AGENT_VERSION = "3.2.0"
 AGENT_MODEL   = "claude-sonnet-4-20250514"
 
 # Bot display name in messages
