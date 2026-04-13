@@ -1,130 +1,131 @@
-# 🎵 Audiera - AI Song Agent
+# 🎧 BeatForge AI — Autonomous Song Generation Agent
 
-Create songs using natural language. Just tell Audiera what you want!
+Generate full songs using natural language via Telegram.
+Describe the vibe → get a track.
 
 **Developer:** Saqueeb
 
 ---
 
-## 🚀 Quick Setup
+## ⚡ What This Actually Does
 
-### Prerequisites
-- Python 3.8+
-- Telegram account
+BeatForge AI is a Telegram-based agent that:
 
-### Step 1: Get Credentials
+* Converts text prompts → structured music requests
+* Calls Audiera API for song generation
+* Manages keys, rate limits, and history
+* Supports customization (genre, BPM, artist, mood)
 
-| Service | How to Get |
-|---------|-----------|
-| Telegram Bot | Message @BotFather on Telegram |
-| Chat ID | Message @userinfobot on Telegram |
-| Audiera API | https://ai.audiera.fi |
+---
 
-### Step 2: Configure
+## 🚀 Quick Start (No Confusion)
+
+### 1. Requirements
+
+* Python 3.8+
+* Telegram account
+
+### 2. Get Credentials
+
+| Service      | Action                |
+| ------------ | --------------------- |
+| Telegram Bot | Message @BotFather    |
+| Chat ID      | Message @userinfobot  |
+| Audiera API  | https://ai.audiera.fi |
+
+---
+
+### 3. Setup
+
+```bash
+git clone https://github.com/zcsaqueeb/BeatForge-AI.git
+cd BeatForge-AI
+pip install requests web3
+```
+
+---
+
+### 4. Configure
 
 Edit `config.py`:
 
 ```python
-# Telegram
 TG_BOT_TOKEN = "your_bot_token"
 TG_CHAT_ID = "your_chat_id"
 
-# Audiera API Keys
 AUDIERA_KEYS = [
     {"key": "sk_audiera_xxx", "status": "active"},
 ]
 
-# Wallet (optional)
-EVM_ADDRESS = "0x..."
-```
-
-### Step 3: Run
-
-```bash
-# Install dependencies
-pip install requests web3
-
-# Run bot
-python song_agent.py
-
-# Or use batch file
-song_agent.bat
+EVM_ADDRESS = "0x..."  # optional
 ```
 
 ---
 
-## 💬 How to Use
+### 5. Run
 
-### Natural Language
+```bash
+python song_agent.py
+```
+
+---
+
+## 💬 Usage
+
+### Natural Prompts
 
 ```
-You: "Make a happy pop song"
-You: "I want romantic R&B"
-You: "Create dance music about summer"
+"Make a dark trap beat"
+"Romantic R&B with slow tempo"
+"Upbeat summer EDM track"
 ```
 
 ### Commands
 
-| Command | Description |
-|---------|------------|
-| `/song <desc>` | Create song |
-| `/custom about=X /artist=Y /bpm=120` | Custom song |
-| `/history` | View past songs |
-| `/help` | All commands |
-| `/status` | System status |
-| `/keys` | API keys |
-| `/wallet` | Wallet info |
-| `/balance` | Check $BEAT |
+| Command        | Function         |
+| -------------- | ---------------- |
+| `/song <desc>` | Generate song    |
+| `/custom`      | Advanced control |
+| `/history`     | Past outputs     |
+| `/status`      | System health    |
+| `/keys`        | API key status   |
+| `/balance`     | Wallet check     |
 
 ---
 
-## 🎛️ Features
+## 🎛 Core Features
 
-- Natural language song creation
-- Custom songs with BPM, lyrics, artist
-- Automatic duplicate detection
-- Song history (200 songs)
-- Multiple API keys support
-- EVM wallet integration
-- Rate limit handling
+* Natural language → music generation
+* Multi-key failover system
+* Duplicate request detection
+* Persistent memory (200 songs)
+* Wallet + token integration ($BEAT)
+* Rate limit handling
+* Telegram-native UX
 
 ---
 
-## 📁 Files
+## 📁 Project Structure
 
 ```
-SONG_AGENT/
-├── song_agent.py    # Main bot
-├── config.py      # Configuration
-├── song_agent.bat # Windows launcher
-├── memory/      # Saved data
-└── logs/        # Log files
+BeatForge-AI/
+├── song_agent.py      # Core bot logic
+├── config.py          # Config
+├── memory/            # Song history
+├── logs/              # Logs
+└── song_agent.bat     # Windows runner
 ```
 
 ---
 
-## ⚙️ Configuration
-
-Edit `config.py` to customize:
+## ⚙️ Config Controls
 
 ```python
-# Bot Settings
-TG_BOT_TOKEN = "..."
-TG_CHAT_ID = "..."
-
-# API Keys
-AUDIERA_KEYS = [...]
 AUDIERA_MODE = "single"  # or "multi"
 
-# Wallet
-EVM_ADDRESS = "0x..."
-BEAT_CONTRACT = "0x..."
-
-# Defaults
 DEFAULT_STYLES = ["Pop", "Electronic"]
 DEFAULT_ARTIST = "Kira"
 
-# Features
 SEND_WELCOME_MESSAGE = True
 VERBOSE_LOGGING = False
 SAVE_LOG_FILE = False
@@ -132,56 +133,47 @@ SAVE_LOG_FILE = False
 
 ---
 
-## 🛠️ Troubleshooting
+## 🛠 Debug Fast
 
-### Bot not responding
-- Check token and chat ID
-- Run `/start` in Telegram
+| Issue       | Fix                     |
+| ----------- | ----------------------- |
+| Bot silent  | Check token + `/start`  |
+| No songs    | Verify API keys `/keys` |
+| Rate limit  | Wait / switch key       |
+| Wallet fail | Check address           |
 
-### Song creation fails
-- Check API key: `/keys`
-- Try `/balance` for wallet
-- Wait if rate limited
+---
 
-### Check status
-```bash
-/status   # System status
-/keys    # API keys
-/debug   # Debug info
+## 🔌 Architecture (Simple + Expandable)
+
+```
+User → Telegram Bot → Parser → Audiera API → Response → Memory
 ```
 
----
+**Extendable Areas:**
 
-## 📜 Commands List
-
-### Song
-- `/song` - Create song
-- `/custom` - Custom song
-- `/rewrite` - Regenerate
-- `/history` - Past songs
-
-### Info
-- `/genres` - Music styles
-- `/artists` - Artists
-- `/status` - Status
-
-### Keys
-- `/keys` - View keys
-- `/addkey` - Add key
-- `/removekey` - Remove key
-
-### Wallet
-- `/wallet` - Wallet info
-- `/setwallet` - Set address
-- `/balance` - Check $BEAT
+* Add new music APIs
+* Plug in LLM prompt optimization
+* Add web UI layer
+* Add async queue for scaling
 
 ---
 
-## 🔗 Links
+## 🔗 Resources
 
-- Audiera API: https://ai.audiera.fi
-- $BEAT Contract: 0xcf3232b85b43bca90e51d38cc06cc8bb8c8a3e36
+* Audiera API → https://ai.audiera.fi
+* $BEAT Contract → 0xcf3232b85b43bca90e51d38cc06cc8bb8c8a3e36
 
 ---
 
-MIT License - Free to use!
+## 📜 License
+
+MIT — Use it, break it, improve it.
+
+---
+
+## 🧠 Positioning Upgrade (Use This Everywhere)
+
+> BeatForge AI = "Text → Music Engine with Telegram Control Layer"
+
+Not a bot. A system.
