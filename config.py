@@ -13,8 +13,8 @@
 #  TELEGRAM CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 # Get your bot token from @BotFather on Telegram
-TG_BOT_TOKEN = "your_bot_token"
-TG_CHAT_ID   = "your_chat_id"
+TG_BOT_TOKEN = "YOUR_BOT_TOKEN"
+TG_CHAT_ID   = "YOUR_CHAT_ID"
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  AUDIERA API KEYS
@@ -22,7 +22,7 @@ TG_CHAT_ID   = "your_chat_id"
 # Get your API keys from https://ai.audiera.fi
 AUDIERA_KEYS = [
     {
-        "key": "your_audira_api_key",
+        "key": "ENTER_YOUR_AUDIERA_API_KEYS",
         "status": "active"
     },
     # Add more keys here for multi-key rotation:
@@ -33,19 +33,44 @@ AUDIERA_KEYS = [
 AUDIERA_MODE = "single"
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  WALLET CONFIGURATION
+#  WALLET CONFIGURATION  —  BNB Chain BEP-20
 # ═══════════════════════════════════════════════════════════════════════════
-# Your EVM wallet address for receiving $BEAT tokens
-EVM_ADDRESS   = "your_wallet_address"
+# Your BEP-20 wallet address for receiving $BEAT tokens (BNB Chain / BSC)
+# Get MetaMask or Trust Wallet — ensure BNB Chain network is selected
+EVM_ADDRESS   = "ENTER_YOUR_EVM_ADDRESS"
 
-# BEAT token contract address
+# $BEAT token contract address on BNB Chain (BEP-20)
+# Contract: https://bscscan.com/token/0xcf3232b85b43bca90e51d38cc06cc8bb8c8a3e36
 BEAT_CONTRACT = "0xcf3232b85b43bca90e51d38cc06cc8bb8c8a3e36"
+
+# BNB Chain (BSC) RPC endpoints — used for on-chain balance checks
+# Primary:  https://bsc-dataseed1.binance.org
+# Fallback: https://rpc.ankr.com/bsc  |  https://bsc.publicnode.com
+BSC_RPC_ENDPOINTS = [
+    "https://bsc-dataseed1.binance.org",
+    "https://bsc-dataseed2.binance.org",
+    "https://bsc-dataseed3.binance.org",
+    "https://rpc.ankr.com/bsc",
+    "https://bsc.publicnode.com",
+]
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  EARNINGS SYSTEM  (v3.4.0)  —  $BEAT on BNB Chain (BEP-20)
+# ═══════════════════════════════════════════════════════════════════════════
+# $BEAT tokens earned per song generated
+BEAT_PER_SONG = 1.0
+
+# Milestone song counts that trigger a celebration alert
+EARNINGS_MILESTONES = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000]
+
+# Show earnings summary in every song result message
+SHOW_EARNINGS_IN_RESULTS = True
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  AGENT IDENTITY
-# ═══════════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 AGENT_NAME    = "🎵 Audiera"
-AGENT_VERSION = "3.2.0"
+AGENT_VERSION = "3.4.0"
 AGENT_MODEL   = "claude-sonnet-4-20250514"
 
 # Bot display name in messages
@@ -71,6 +96,10 @@ DEFAULT_STYLES = ["Pop", "Electronic"]
 
 # Default artist
 DEFAULT_ARTIST = "Kira"
+
+# Default preferred style for natural language generation (user can set via /setstyle)
+# Leave empty "" to use DEFAULT_STYLES
+PREFERRED_STYLE = ""
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  EMOTION ENGINE SETTINGS
@@ -205,4 +234,5 @@ COMMAND_ALIASES = {
     "create": ["create", "make", "generate", "song"],
     "genres": ["genres", "styles", "types"],
     "artists": ["artists", "singers", "vocalists"],
+    "earnings": ["earnings", "earn", "money", "beat", "rewards"],
 }
