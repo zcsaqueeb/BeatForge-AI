@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║              🎵  Audiera AI Song Agent  —  v3.1.0  🎵                       ║
+║              🎵  Audiera AI Song Agent  —  v3.4.0  🎵                       ║
 ║                                                                              ║
 ║  Natural language song creation powered by Audiera + Claude AI.             ║
 ║  Just describe what you want — Audiera handles the rest.                    ║
@@ -271,7 +271,7 @@ def print_status_bar(agent=None):
     raw   = _ansi_len(inner)
     pad   = max(0, W - raw)
     p(f"  {accent}│{rst}{inner}{' '*pad}{accent}│{rst}")
-    hint = "Ctrl+C to quit  ·  /help in Telegram  ·  /auto_mode on for autonomous mode"
+    hint = "Ctrl+C to quit  ·  /help in Telegram  ·  /earnings for $BEAT (BEP-20)  ·  /auto_mode on"
     h_pad = max(0, W - len(hint) - 1)
     p(f"  {accent}│{rst}  {C.DIM}{hint}{' '*h_pad}{rst}{accent}│{rst}")
     p(f"  {accent}╰{'─'*W}╯{rst}")
@@ -398,7 +398,7 @@ class ConfigValidator:
             ]
         ),
         "no_web3": (
-            "web3 library is not installed — wallet features will be unavailable.",
+            "web3 library is not installed — BNB Chain BEP-20 wallet features unavailable.",
             [
                 "Run:  pip install web3",
                 "Or to skip wallet features, leave EVM_ADDRESS empty in config.py",
@@ -891,6 +891,144 @@ class StateManager:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  EARNINGS TRACKER  — $BEAT rewards per song  (v3.3.0)
+# ══════════════════════════════════════════════════════════════════════════════
+class EarningsTracker:
+    """
+    Tracks $BEAT token earnings for every song generated.
+    Persists to memory/earnings.json.  Fires milestone alerts.
+    """
+    MILESTONE_ICONS = {
+        10:   "🎉", 25:  "🌟", 50:   "🔥", 100:  "💎",
+        250: "👑",  500: "🚀", 1000: "🏆", 2500: "🌙", 5000: "⚡",
+    }
+
+    def __init__(self):
+        self._file          = MEM_DIR / "earnings.json"
+        self.beat_per_song  = getattr(CFG, "BEAT_PER_SONG", 1.0)
+        self.milestones     = sorted(getattr(CFG, "EARNINGS_MILESTONES",
+                                             [10, 25, 50, 100, 250, 500, 1000, 2500, 5000]))
+        data = self._load()
+        self.total_songs    = data.get("total_songs",  0)
+        self.total_beat     = data.get("total_beat",   0.0)
+        self.session_songs  = 0
+        self.session_beat   = 0.0
+        self._next_ms_idx   = self._next_milestone_idx()
+
+    def _load(self) -> dict:
+        try:
+            return json.loads(self._file.read_text("utf-8")) if self._file.exists() else {}
+        except Exception:
+            return {}
+
+    def _save(self):
+        try:
+            self._file.write_text(
+                json.dumps({"total_songs": self.total_songs, "total_beat": self.total_beat},
+                           indent=2), encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+    def _next_milestone_idx(self) -> int:
+        for i, m in enumerate(self.milestones):
+            if self.total_songs < m:
+                return i
+        return len(self.milestones)
+
+    @property
+    def next_milestone(self) -> Optional[int]:
+        if self._next_ms_idx < len(self.milestones):
+            return self.milestones[self._next_ms_idx]
+        return None
+
+    def record(self, count: int = 1) -> Optional[int]:
+        """Record songs; returns milestone crossed (or None)."""
+        self.total_songs   += count
+        self.session_songs += count
+        earned              = round(self.beat_per_song * count, 4)
+        self.total_beat    += earned
+        self.total_beat     = round(self.total_beat, 4)
+        self.session_beat  += earned
+        self._save()
+        if self._next_ms_idx < len(self.milestones):
+            m = self.milestones[self._next_ms_idx]
+            if self.total_songs >= m:
+                self._next_ms_idx += 1
+                return m
+        return None
+
+    def reset(self):
+        self.total_songs = 0
+        self.total_beat  = 0.0
+        self.session_songs = 0
+        self.session_beat  = 0.0
+        self._next_ms_idx  = 0
+        self._save()
+
+    def inline_tag(self) -> str:
+        return (
+            f"💰 `+{self.beat_per_song} $BEAT`  "
+            f"·  total `{self.total_beat:,.2f} $BEAT`  "
+            f"·  `{self.total_songs}` songs"
+        )
+
+    def milestone_message(self, m: int) -> str:
+        icon = self.MILESTONE_ICONS.get(m, "🎯")
+        return (
+            f"{icon} *MILESTONE — {m} Songs!*\n\n"
+            f"  💎 Total earned:  `{self.total_beat:,.4f} $BEAT`\n"
+            f"  🎵 Songs created: `{self.total_songs}`\n\n"
+            f"_Keep generating to earn more $BEAT._\n"
+            f"Check your wallet with `/balance`"
+        )
+
+    def summary_text(self) -> str:
+        nm = self.next_milestone
+        if nm and nm > 0:
+            prev  = self.milestones[self._next_ms_idx - 1] if self._next_ms_idx > 0 else 0
+            span  = nm - prev
+            pct   = min(1.0, (self.total_songs - prev) / span if span > 0 else 1.0)
+            bar   = "▓" * int(pct * 10) + "░" * (10 - int(pct * 10))
+            to_go = nm - self.total_songs
+            ms_line = (f"  🎯 Next milestone: `{nm}` songs  (`{to_go}` to go)\n"
+                       f"  [{bar}]  {int(pct*100)}%\n\n")
+        else:
+            ms_line = "  🏆 *All milestones reached!*\n\n"
+        return (
+            f"💰 *$BEAT Earnings Dashboard*\n\n"
+            f"  🎵 Total songs:   `{self.total_songs}`\n"
+            f"  💎 Total earned:  `{self.total_beat:,.4f} $BEAT`\n"
+            f"  ⚡ This session:  `{self.session_songs}` songs  "
+            f"(`{self.session_beat:,.4f} $BEAT`)\n"
+            f"  💸 Rate:          `{self.beat_per_song} $BEAT` per song\n\n"
+            f"{ms_line}"
+            f"  🔗 Check wallet: `/balance`\n"
+            f"  💳 Set wallet:   `/setwallet 0x…`"
+        )
+
+    def earn_guide(self) -> str:
+        return (
+            f"💡 *How to Earn $BEAT (BEP-20)*\n\n"
+            f"  Every song earns `{self.beat_per_song} $BEAT` automatically.\n\n"
+            f"  🌐 Token lives on *BNB Chain (BSC)* — BEP-20 standard.\n"
+            f"  Set your wallet with `/setwallet 0x…` to track rewards.\n\n"
+            f"  *Generate more songs:*\n"
+            f"  • `/song <description>` — instant creation\n"
+            f"  • `/auto_mode on` — earn while you sleep!\n"
+            f"  • `/modern` — random trending song\n"
+            f"  • `/custom` — full manual control\n\n"
+            f"  *Milestones:*\n"
+            + "".join(
+                f"  {self.MILESTONE_ICONS.get(m, '🎯')} `{m}` songs\n"
+                for m in self.milestones[:6]
+            )
+            + f"\n  `/earnings` — your full dashboard\n"
+              f"  `/balance` — on-chain $BEAT balance"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  AUTO MODE ENGINE  — fully autonomous, self-directing song generation
 # ══════════════════════════════════════════════════════════════════════════════
 class AutoModeEngine:
@@ -1183,9 +1321,11 @@ class AutoModeEngine:
         for s in recent:
             recent_lines += f"  • *{s.get('theme','?')}* — _{s.get('artist','?')}_\n"
 
+        earn = self.agent.earnings
         self.agent.bot.send(
             f"🤖 *AUTO MODE Report* — Cycle `{self.cycle_count}`\n\n"
             f"  🎵 Songs total: `{self.agent.state.song_count}`\n"
+            f"  💰 $BEAT earned: `{earn.total_beat:,.4f}` total\n"
             f"  ✅ Success streak: `{self.success_streak}`\n"
             f"  ⏱ Current interval: `{self.current_interval} min`\n\n"
             f"*Recent generations:*\n{recent_lines}\n"
@@ -1200,11 +1340,18 @@ class IntentDetector:
     """Detects song creation intent, mood, genre, and artist from free text."""
 
     CREATE_TRIGGERS = [
+        # Explicit create verbs
         "make a song", "create a song", "generate a song", "write a song",
         "compose a song", "produce a song", "play a song",
         "make music", "create music", "generate music",
         "i want a song", "i need a song", "i want music", "i need music",
         "can you make", "can you create", "can you generate",
+        # Bare genre/mood + song type (e.g. "happy pop song", "chill lo-fi")
+        "a song", "a track", "a beat", "some music",
+        "sad song", "happy song", "love song", "chill song", "dark song",
+        "pop song", "rap song", "rock song", "r&b song", "edm track",
+        "lo-fi", "lofi", "hip hop", "hip-hop",
+        # Multilingual
         "मुझे एक गाना", "गाना बनाओ", "song banana hai",
         "quiero una canción", "hazme una canción",
         "fais-moi une chanson", "crée une chanson",
@@ -1655,6 +1802,8 @@ class SongAgent:
         self.generating         = False
         self._gen_lock          = threading.Lock()
         self.auto_engine        = AutoModeEngine(self)
+        self.earnings           = EarningsTracker()
+        self.preferred_style    = getattr(CFG, "PREFERRED_STYLE", "") or ""
 
         log.info(f"SongAgent ready  v{CFG.AGENT_VERSION}")
 
@@ -1694,24 +1843,27 @@ class SongAgent:
     def _send_welcome(self):
         wallet_set = bool(CFG.EVM_ADDRESS and len(CFG.EVM_ADDRESS) == 42)
         wallet_s   = f"`{CFG.EVM_ADDRESS[:14]}…`" if wallet_set else "_not set_"
+        earn_s     = f"`{self.earnings.total_beat:,.4f} $BEAT` earned · `{self.earnings.total_songs}` songs"
 
         msg  = f"🎵 *{CFG.BOT_DISPLAY_NAME}* is Online!  `v{CFG.AGENT_VERSION}`\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         msg += f"📊 *Status*\n"
         msg += f"  • API keys: `{self.audiera.active_count}` active\n"
         msg += f"  • Songs made: `{self.state.song_count}`\n"
-        msg += f"  • Wallet: {wallet_s}\n\n"
+        msg += f"  • Wallet: {wallet_s}\n"
+        msg += f"  • Earnings: {earn_s}\n\n"
         msg += f"💬 *Quick Start*\n"
-        msg += f"  Just type what you want, for example:\n"
-        msg += f"  _\"Make a happy pop song about summer\"_\n"
-        msg += f"  _\"Create a chill R&B track\"_\n\n"
+        msg += f"  Just describe what you want — I'll create it immediately:\n"
+        msg += f"  _\"Happy pop song about summer\"_\n"
+        msg += f"  _\"Chill R&B track about love\"_\n"
+        msg += f"  _\"Dark electronic with heavy bass\"_\n\n"
         msg += f"⌨️ *Commands*\n"
-        msg += f"  /song  /custom  /history  /status  /help\n\n"
-        msg += f"🤖 *New!* `/auto_mode on` — let the bot generate songs on its own"
+        msg += f"  /song  /custom  /modern  /history  /earnings  /help\n\n"
+        msg += f"🤖 *Tip:* `/auto_mode on` — earn $BEAT automatically!"
 
         self.bot.send_buttons(msg, [
-            [("🎵 Create Song", "/song"), ("📋 Help", "/help")],
-            [("📊 Status", "/status"), ("🔑 API Keys", "/keys")],
+            [("🎵 Create Song", "/song"), ("💰 Earnings", "/earnings")],
+            [("📊 Status", "/status"), ("📋 Help", "/help")],
         ])
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1720,6 +1872,29 @@ class SongAgent:
     def handle_message(self, text: str):
         self.state.add_conversation("user", text)
         self.bot.typing()
+
+        # ── pending confirmation intercept ────────────────────────────────────
+        if self.state.pending_confirmation:
+            tl = text.lower().strip()
+            confirm_words = {"yes","yeah","yep","ok","okay","confirm","sure",
+                             "go","generate","yup","do it","proceed","let's go",
+                             "go ahead","sounds good","looks good","perfect","great"}
+            cancel_words  = {"no","nope","cancel","stop","abort","nah","never mind",
+                             "nevermind","quit","discard"}
+            if tl in confirm_words or text.startswith("/confirm_song"):
+                self._execute_confirmed_song()
+                return
+            if tl in cancel_words or text.startswith("/cancel_song"):
+                self._cancel_confirmation()
+                return
+            # Inline edit: "theme: rainy days" or "style: pop" or "artist: Kira"
+            for prefix in ("theme:", "style:", "styles:", "artist:", "mood:", "bpm:"):
+                if tl.startswith(prefix):
+                    self._apply_inline_edit(prefix.rstrip(":"), text.split(":", 1)[1].strip())
+                    return
+            if text.startswith("/edit_song") or tl in ("edit","change","modify"):
+                self._show_edit_options()
+                return
 
         if text.startswith("/"):
             self._handle_command(text)
@@ -1766,6 +1941,19 @@ class SongAgent:
             "setwallet":    lambda: self._cmd_setwallet(args),
             "setevm":       lambda: self._cmd_setwallet(args),
             "balance":      self._cmd_balance,
+            # Earnings (v3.3.0)
+            "earnings":     self._cmd_earnings,
+            "earn":         self._cmd_earn,
+            "rewards":      self._cmd_earnings,
+            "beat":         self._cmd_earnings,
+            # Confirmation flow (v3.3.0)
+            "confirm_song":  self._execute_confirmed_song,
+            "cancel_song":   self._cancel_confirmation,
+            "edit_song":     lambda: self._show_edit_options(args),
+            # Style preference (v3.3.0)
+            "style":        lambda: self._cmd_style(args),
+            "setstyle":     lambda: self._cmd_style(args),
+            "mystyle":      lambda: self._cmd_style(args),
             # System
             "notifications":lambda: self._cmd_notifications(args),
             "notify":       lambda: self._cmd_notifications(args),
@@ -1806,27 +1994,313 @@ class SongAgent:
             self._handle_conversation(text, intent_data)
 
     def _handle_conversation(self, text: str, intent_data: dict):
-        """Fallback handler for messages that are not song requests."""
-        greet_words = ["hi","hello","hey","hola","bonjour","नमस्ते","yo","sup"]
-        tl = text.lower()
-        if any(w in tl for w in greet_words):
+        """
+        Fallback handler for messages not caught as song requests.
+        Strategy: be aggressive — if it has enough content, just create the song.
+        Only show the 'not sure' message for very short / clearly non-song text.
+        """
+        greet_words = ["hi", "hello", "hey", "hola", "bonjour", "नमस्ते", "yo", "sup", "howdy", "what's up"]
+        tl = text.lower().strip()
+
+        # Greetings — welcome menu
+        if any(tl == w or tl.startswith(w + " ") or tl.startswith(w + "!") for w in greet_words):
             self.bot.send_buttons(
                 f"👋 Hey! I'm *{CFG.BOT_DISPLAY_NAME}*, your AI music creator.\n\n"
-                f"Just tell me what kind of song you want — I'll handle the rest!",
+                f"Just describe any song and I'll create it instantly — no commands needed!",
                 [
-                    [("🎵 Create a Song", "/song"), ("📋 See Commands", "/help")],
+                    [("🎵 Create a Song", "/song"), ("💰 My Earnings", "/earnings")],
                     [("🎤 View Artists", "/artists"), ("🎸 View Genres", "/genres")],
                 ]
             )
+            return
+
+        # If text has ≥ 2 words and isn't an obvious question, treat it as a song description
+        words = tl.split()
+        is_question = tl.endswith("?") or tl.startswith(("what", "who", "where", "when", "how", "why", "is ", "are ", "can ", "do ", "does "))
+        if len(words) >= 2 and not is_question:
+            # Use text directly as a song description — no clarification needed
+            self._create_song_direct(text)
+            return
+
+        # Very short or question text — show help prompt
+        self.bot.send(
+            f"🎵 I'm a *song creation* bot — just describe what you want!\n\n"
+            f"*Examples:*\n"
+            f"  • _\"A sad piano ballad about leaving home\"_\n"
+            f"  • _\"Happy energetic pop for a workout\"_\n"
+            f"  • _\"Chill lo-fi hip hop with soft vocals\"_\n\n"
+            f"Or use `/song <description>` for a direct request.\n"
+            f"Type `/help` to see all commands."
+        )
+
+    def _create_song_direct(self, text: str):
+        """
+        Parse any free-text description and route through the confirmation flow.
+        Never generates immediately — always confirms first.
+        """
+        intent = self.intent.detect_intent(text)
+        g      = intent.get("genre") or intent.get("mood", "")
+
+        if self.preferred_style:
+            styles = self._GENRE_STYLES.get(self.preferred_style.lower(), [self.preferred_style])
         else:
+            styles = self._GENRE_STYLES.get(g, CFG.DEFAULT_STYLES)
+
+        artist = intent.get("artist") or CFG.DEFAULT_ARTIST
+        if artist not in self.artist_ids:
+            artist = CFG.DEFAULT_ARTIST
+
+        theme = intent.get("theme") or text.strip()
+        mood  = intent.get("mood") if intent.get("mood") != "neutral" else None
+
+        self._request_confirmation(theme, styles, artist, mood)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  CONFIRMATION FLOW  (v3.3.0)
+    #  Fetch lyrics preview → show card → user confirms/edits/cancels → generate
+    # ══════════════════════════════════════════════════════════════════════════
+    def _request_confirmation(self, theme: str, styles: list, artist: str,
+                              mood: Optional[str] = None,
+                              custom_lyrics: Optional[str] = None,
+                              bpm: Optional[int] = None):
+        """
+        Store pending params and start a background thread that fetches the
+        lyrics preview then sends the confirmation card.
+        """
+        self.state.pending_confirmation = {
+            "theme": theme, "styles": styles, "artist": artist,
+            "mood": mood, "custom_lyrics": custom_lyrics, "bpm": bpm,
+            "fetched_lyrics": None,
+        }
+        self.state.last_song_params = {"theme": theme, "styles": styles, "artist": artist}
+
+        self.bot.send(
+            f"⏳ *Fetching lyrics preview for:*\n"
+            f"  🎨 `{theme[:70]}`\n\n"
+            f"_Preparing your song preview — just a moment…_"
+        )
+        threading.Thread(
+            target=self._fetch_and_show_confirmation,
+            args=(theme, styles, artist, mood, custom_lyrics, bpm),
+            daemon=True
+        ).start()
+
+    def _fetch_and_show_confirmation(self, theme: str, styles: list, artist: str,
+                                     mood: Optional[str], custom_lyrics: Optional[str],
+                                     bpm: Optional[int]):
+        """Fetch lyrics from Audiera, then send the full confirmation card."""
+        # ── fetch lyrics ─────────────────────────────────────────────────────
+        fetched_lyrics = None
+        lyrics_block   = ""
+
+        if custom_lyrics:
+            lyrics_block   = f"\n📝 *Your Custom Lyrics:*\n_{custom_lyrics[:200]}_\n"
+        else:
+            raw, err = self.audiera.generate_lyrics(theme)
+            if not err and raw:
+                fetched_lyrics = raw
+                # Show first 4 non-empty lines as preview
+                preview_lines = [l.strip() for l in raw.splitlines() if l.strip()][:4]
+                formatted     = "\n".join(f"  _{l}_" for l in preview_lines)
+                lyrics_block  = f"\n📝 *Lyrics Preview:*\n{formatted}\n"
+            else:
+                lyrics_block = "\n📝 *Lyrics:* _Preview unavailable — will generate on confirm._\n"
+
+        # Store fetched lyrics so _execute_confirmed_song can reuse them
+        if self.state.pending_confirmation:
+            self.state.pending_confirmation["fetched_lyrics"] = fetched_lyrics
+
+        # ── build confirmation card ──────────────────────────────────────────
+        mood_tag = f"  💭 Mood:    `{mood}`\n"   if mood                    else ""
+        bpm_tag  = f"  🥁 BPM:     `{bpm}`\n"    if bpm                     else ""
+        style_note = (f"  🎨 Pref:    _your style lock ({self.preferred_style})_\n"
+                      if self.preferred_style else "")
+        desc = getattr(CFG, "ARTIST_DESCRIPTIONS", {}).get(artist, "")
+        artist_note = f"  🎙 Voice:   _{desc}_\n" if desc else ""
+
+        msg = (
+            f"🎵 *Song Preview — Please Confirm*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"  🎨 Theme:   `{theme[:70]}`\n"
+            f"  🎸 Styles:  `{', '.join(styles)}`\n"
+            f"  🎤 Artist:  `{artist}`\n"
+            f"{artist_note}"
+            f"{mood_tag}{bpm_tag}{style_note}"
+            f"{lyrics_block}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"_Reply_ *yes* _to generate  •  reply_ *edit* _to change  •  reply_ *no* _to cancel_"
+        )
+
+        self.bot.send_buttons(msg, [
+            [("✅ Confirm & Generate", "/confirm_song"),
+             ("✏️ Edit Details",       "/edit_song"),
+             ("❌ Cancel",             "/cancel_song")],
+        ])
+
+    def _execute_confirmed_song(self):
+        """User confirmed — proceed with music generation using pre-fetched lyrics."""
+        p = self.state.pending_confirmation
+        if not p:
             self.bot.send(
-                f"🎵 I'm a *song creation* bot — I'm not sure what you mean, but I'd love to make you music!\n\n"
-                f"*Try saying:*\n"
-                f"  • _\"Make me a happy pop song\"_\n"
-                f"  • _\"Create a chill R\\&B track about love\"_\n"
-                f"  • `/song <description>` for a direct request\n\n"
-                f"Type /help to see all commands."
+                "❌ *No pending song to confirm.*\n\n"
+                "Use `/song <description>` to start a new one."
             )
+            return
+
+        theme          = p["theme"]
+        styles         = p["styles"]
+        artist         = p["artist"]
+        prefetched     = p.get("fetched_lyrics")   # may be None (will re-fetch)
+        custom_lyrics  = p.get("custom_lyrics")
+        lyrics_to_use  = custom_lyrics or prefetched
+
+        self.state.pending_confirmation = None
+        self.state.last_song_params = {"theme": theme, "styles": styles, "artist": artist}
+
+        self.bot.send(
+            f"🚀 *Confirmed! Generating your song…*\n\n"
+            f"  🎨 Theme:  `{theme[:60]}`\n"
+            f"  🎸 Styles: `{', '.join(styles)}`\n"
+            f"  🎤 Artist: `{artist}`\n\n"
+            f"⏳ _(This may take 1–3 minutes — sit tight!)_"
+        )
+        threading.Thread(
+            target=self._generate_song_async,
+            args=(theme, styles, artist, lyrics_to_use),
+            daemon=True
+        ).start()
+
+    def _cancel_confirmation(self):
+        """User cancelled — clear pending state."""
+        p = self.state.pending_confirmation
+        if not p:
+            self.bot.send("ℹ️ No pending song to cancel.")
+            return
+        theme = p.get("theme", "your song")
+        self.state.pending_confirmation = None
+        self.bot.send_buttons(
+            f"❌ *Cancelled.*\n\n"
+            f"_{theme[:60]}_ was discarded.\n\n"
+            f"Ready when you are!",
+            [[("🎵 New Song", "/song"), ("🔥 Modern", "/modern"), ("📋 Help", "/help")]]
+        )
+
+    def _show_edit_options(self, field: str = ""):
+        """Show the edit card for the pending song."""
+        p = self.state.pending_confirmation
+        if not p:
+            self.bot.send("❌ No pending song to edit. Use `/song` to start one.")
+            return
+
+        # If a specific field was requested via callback (e.g. /edit_song theme)
+        if field:
+            field = field.strip().lower()
+            prompts = {
+                "theme":  ("🎨", "theme or description",
+                           "e.g. `rainy night in the city`"),
+                "style":  ("🎸", "style or genre",
+                           "e.g. `r&b` or `pop` or `lo-fi`  (see `/genres`)"),
+                "artist": ("🎤", "artist name",
+                           "e.g. `Kira` or `Rhea Monroe`  (see `/artists`)"),
+                "bpm":    ("🥁", "BPM (tempo)",
+                           "e.g. `90` for slow, `120` for mid, `145` for fast"),
+            }
+            if field in prompts:
+                icon, label, hint = prompts[field]
+                self.state.pending_confirmation["_editing_field"] = field
+                self.bot.send(
+                    f"{icon} *Change {label.capitalize()}*\n\n"
+                    f"  Current: `{p.get(field) or p.get('styles') if field == 'style' else p.get(field, '—')}`\n\n"
+                    f"  Reply with the new value.\n"
+                    f"  _{hint}_"
+                )
+                return
+
+        # Generic edit card
+        self.bot.send_buttons(
+            f"✏️ *Edit Song Details*\n\n"
+            f"  🎨 Theme:   `{p['theme'][:55]}`\n"
+            f"  🎸 Styles:  `{', '.join(p['styles'])}`\n"
+            f"  🎤 Artist:  `{p['artist']}`\n"
+            f"  💭 Mood:    `{p.get('mood') or 'auto'}`\n\n"
+            f"  *Type* `theme: <new>` *or* `style: <new>` *or* `artist: <name>`\n"
+            f"  *or tap a button:*",
+            [
+                [("🎨 Change Theme",  "/edit_song theme"),
+                 ("🎸 Change Style",  "/edit_song style")],
+                [("🎤 Change Artist", "/edit_song artist"),
+                 ("🥁 Change BPM",    "/edit_song bpm")],
+                [("✅ Confirm",        "/confirm_song"),
+                 ("❌ Cancel",         "/cancel_song")],
+            ]
+        )
+
+    def _apply_inline_edit(self, field: str, value: str):
+        """Apply a `field: value` inline edit to the pending confirmation."""
+        p = self.state.pending_confirmation
+        if not p:
+            self.bot.send("❌ No pending song. Use `/song` to start one.")
+            return
+
+        field = field.lower().strip()
+        value = value.strip()
+        applied = True
+
+        if field == "theme":
+            p["theme"] = value
+            p["fetched_lyrics"] = None   # need fresh lyrics for new theme
+        elif field in ("style", "styles"):
+            # Accept comma-separated or single value
+            new_styles = [s.strip().capitalize() for s in value.replace(",", " ").split() if s.strip()]
+            if new_styles:
+                p["styles"] = new_styles
+        elif field == "artist":
+            # Fuzzy match
+            for name in self.artist_ids:
+                if value.lower() in name.lower() or name.lower() in value.lower():
+                    p["artist"] = name
+                    break
+            else:
+                self.bot.send(
+                    f"⚠️ Artist `{value}` not found — use `/artists` for the full list.\n"
+                    f"Artist not changed."
+                )
+                applied = False
+        elif field == "mood":
+            p["mood"] = value.lower()
+        elif field == "bpm":
+            try:
+                bpm = max(60, min(200, int(value)))
+                p["bpm"] = bpm
+                # Re-derive styles from BPM if not manually set
+                if bpm < 90:    p["styles"] = ["Ambient", "Indie"]
+                elif bpm < 110: p["styles"] = ["R&B", "Soul"]
+                elif bpm < 130: p["styles"] = ["Pop", "Electronic"]
+                elif bpm < 150: p["styles"] = ["Dance", "EDM"]
+                else:           p["styles"] = ["EDM", "Techno"]
+            except ValueError:
+                self.bot.send("⚠️ BPM must be a number (60–200).")
+                applied = False
+        else:
+            applied = False
+
+        if applied:
+            # If theme changed, re-fetch lyrics
+            needs_refresh = field == "theme"
+            self.bot.send(
+                f"✅ *Updated `{field}` → `{value}`*\n\n"
+                + ("_Re-fetching lyrics preview…_" if needs_refresh else
+                   "_Tap ✅ Confirm to generate or keep editing._")
+            )
+            if needs_refresh:
+                threading.Thread(
+                    target=self._fetch_and_show_confirmation,
+                    args=(p["theme"], p["styles"], p["artist"],
+                          p.get("mood"), p.get("custom_lyrics"), p.get("bpm")),
+                    daemon=True
+                ).start()
+            else:
+                self._show_edit_options()
 
     # ── clarification flow ────────────────────────────────────────────────────
     def _ask_for_details(self, intent_data: dict):
@@ -1889,26 +2363,9 @@ class SongAgent:
         if artist not in self.artist_ids:
             artist = CFG.DEFAULT_ARTIST
         theme  = params.get("theme") or self._auto_theme(params)
+        mood   = params.get("mood") if params.get("mood") and params.get("mood") != "neutral" else None
 
-        self.state.last_song_params = {
-            "theme": theme, "styles": styles, "artist": artist,
-            "mood":  params.get("mood"), "genre": params.get("genre")
-        }
-
-        mood_tag = f"  💭 Mood: _{params['mood']}_\n" if params.get("mood") else ""
-        self.bot.send(
-            f"🎵 *Creating Your Song!*\n\n"
-            f"  🎨 Theme:  `{theme}`\n"
-            f"  🎸 Styles: `{', '.join(styles)}`\n"
-            f"  🎤 Artist: `{artist}`\n"
-            f"{mood_tag}\n"
-            f"⏳ Generating…  _(this may take 1–3 minutes)_"
-        )
-        threading.Thread(
-            target=self._generate_song_async,
-            args=(theme, styles, artist),
-            daemon=True
-        ).start()
+        self._request_confirmation(theme, styles, artist, mood)
 
     def _auto_theme(self, params: dict) -> str:
         mood_themes = {
@@ -1927,7 +2384,8 @@ class SongAgent:
         return f"{base} — {g} vibes" if g else base
 
     # ── async generation ──────────────────────────────────────────────────────
-    def _generate_song_async(self, theme: str, styles: list, artist: str):
+    def _generate_song_async(self, theme: str, styles: list, artist: str,
+                             prefetched_lyrics: Optional[str] = None):
         with self._gen_lock:
             if self.generating:
                 self.bot.send(
@@ -1948,12 +2406,16 @@ class SongAgent:
                 )
                 return
 
-            # Generate lyrics
-            lyrics, err = self.audiera.generate_lyrics(theme)
-            if err:
-                self._handle_api_error("lyrics", err)
-                self.consecutive_fails += 1
-                return
+            # ── lyrics (reuse pre-fetched if available) ──────────────────────
+            if prefetched_lyrics:
+                lyrics = prefetched_lyrics
+                log.info(f"Using pre-fetched lyrics ({len(lyrics)} chars)")
+            else:
+                lyrics, err = self.audiera.generate_lyrics(theme)
+                if err:
+                    self._handle_api_error("lyrics", err)
+                    self.consecutive_fails += 1
+                    return
 
             # Get artist ID
             artist_id = self.artist_ids.get(artist, self.artist_ids[CFG.DEFAULT_ARTIST])
@@ -1991,7 +2453,14 @@ class SongAgent:
             if getattr(CFG, "ENABLE_PREFERENCE_LEARNING", True):
                 self._learn_preference(styles, artist)
 
+            # ── earnings tracking ─────────────────────────────────────────
+            milestone_hit = self.earnings.record(len(songs))
+
             self._send_results(songs, theme, styles, artist)
+
+            # Fire milestone alert after results
+            if milestone_hit:
+                self.bot.send(self.earnings.milestone_message(milestone_hit))
 
         except Exception as e:
             log.error(f"_generate_song_async error: {e}\n{traceback.format_exc()}")
@@ -2005,7 +2474,7 @@ class SongAgent:
             self.generating = False
 
     def _send_results(self, songs: list, theme: str, styles: list, artist: str):
-        """Send song results with inline action buttons."""
+        """Send song results with inline action buttons and earnings tag."""
         track_lines = ""
         first_url   = ""
         for i, song in enumerate(songs, 1):
@@ -2019,15 +2488,31 @@ class SongAgent:
                 track_lines += f"  {i}. {title}  _{duration}s_\n"
             self._add_to_history(theme, styles, artist, url)
 
+        # Lyrics preview (first 2 lines if available)
+        lyrics_preview = ""
+        first_song = songs[0] if songs else {}
+        raw_lyrics = first_song.get("lyrics") or first_song.get("lyric") or ""
+        if raw_lyrics:
+            lines = [l.strip() for l in raw_lyrics.splitlines() if l.strip()][:2]
+            if lines:
+                lyrics_preview = f"\n  📝 _\"{' / '.join(lines)}\"_\n"
+
+        # Earnings line
+        show_earn = getattr(CFG, "SHOW_EARNINGS_IN_RESULTS", True)
+        earn_line = f"\n  {self.earnings.inline_tag()}" if show_earn else ""
+
         msg  = f"🎵 *Song Ready!*\n\n"
         msg += track_lines
+        msg += lyrics_preview
         msg += f"\n  🎨 Theme:  `{theme}`\n"
         msg += f"  🎸 Styles: `{', '.join(styles)}`\n"
         msg += f"  🎤 Artist: `{artist}`\n"
         msg += f"  📊 Total:  `{self.state.song_count}` songs made"
+        msg += earn_line
 
         self.bot.send_buttons(msg, [
-            [("🔄 Rewrite", "/rewrite"), ("🎵 New Song", "/song"), ("📜 History", "/history")],
+            [("🔄 Rewrite", "/rewrite"), ("🎵 New Song", "/song"), ("💰 Earnings", "/earnings")],
+            [("📜 History", "/history"), ("🤖 Auto Mode", "/auto_mode on")],
         ])
 
     # ── preference learning ───────────────────────────────────────────────────
@@ -2049,21 +2534,34 @@ class SongAgent:
         if not CFG.EVM_ADDRESS:
             p(f"  {C.WARN}⚠  No wallet configured{C.RESET}")
             return
-        rpcs = ["https://eth.llamarpc.com","https://rpc.ankr.com/eth","https://eth.public-rpc.com"]
+        # BNB Chain (BSC) BEP-20 RPC endpoints — loaded from config
+        rpcs = getattr(CFG, "BSC_RPC_ENDPOINTS", [
+            "https://bsc-dataseed1.binance.org",
+            "https://bsc-dataseed2.binance.org",
+            "https://rpc.ankr.com/bsc",
+            "https://bsc.publicnode.com",
+        ])
         for rpc in rpcs:
             try:
                 w3  = Web3(Web3.HTTPProvider(rpc))
                 ca  = Web3.to_checksum_address(CFG.BEAT_CONTRACT)
                 wa  = Web3.to_checksum_address(CFG.EVM_ADDRESS)
-                abi = '[{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]'
-                bal = w3.eth.contract(address=ca, abi=abi).functions.balanceOf(wa).call()
-                p(f"  {C.OK}✔  $BEAT Balance: {bal/1e18:,.4f} BEAT{C.RESET}")
+                abi = '[{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"},{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"type":"function"}]'
+                contract = w3.eth.contract(address=ca, abi=abi)
+                try:
+                    decimals = contract.functions.decimals().call()
+                except Exception:
+                    decimals = 18
+                raw_bal = contract.functions.balanceOf(wa).call()
+                bal     = raw_bal / (10 ** decimals)
+                p(f"  {C.OK}✔  $BEAT Balance (BEP-20 / BNB Chain): {bal:,.4f} BEAT{C.RESET}")
+                p(f"  {C.DIM}   BscScan: https://bscscan.com/token/{CFG.BEAT_CONTRACT}?a={CFG.EVM_ADDRESS}{C.RESET}")
                 return
             except Exception as e:
                 if "429" in str(e): continue
-                p(f"  {C.ERR}✖  RPC error: {e}{C.RESET}")
+                p(f"  {C.ERR}✖  BSC RPC error: {e}{C.RESET}")
                 return
-        p(f"  {C.WARN}⚠  All RPC providers rate-limited. Try again later.{C.RESET}")
+        p(f"  {C.WARN}⚠  All BSC RPC providers rate-limited. Try again later.{C.RESET}")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  ERROR HANDLER — detailed, actionable guidance
@@ -2152,8 +2650,8 @@ class SongAgent:
         """Suggest alternatives for unknown commands."""
         all_cmds = ["start","help","status","song","create","custom","rewrite","retry",
                     "modern","genres","artists","history","keys","addkey","removekey",
-                    "wallet","setwallet","balance","debug","reset","notifications",
-                    "auto_mode","automode","auto"]
+                    "wallet","setwallet","balance","earnings","earn","setstyle","style",
+                    "debug","reset","notifications","auto_mode","automode","auto"]
         # Simple prefix match suggestion
         suggestions = [c for c in all_cmds if c.startswith(cmd[:3])][:3]
         sug_line = "  " + "  ".join(f"`/{c}`" for c in suggestions) if suggestions else ""
@@ -2171,15 +2669,28 @@ class SongAgent:
             f"📚 *{CFG.BOT_DISPLAY_NAME} — Command Reference*\n\n"
 
             f"🎵 *Song Creation*\n"
-            f"  `/song <description>` — Create a song in plain English\n"
-            f"  `/custom` — Full custom options (theme, artist, BPM, lyrics)\n"
-            f"  `/modern` — Random trending song (pre-set styles)\n"
+            f"  `/song <description>` — Fetches lyrics preview, then asks you to confirm\n"
+            f"  `/custom` — Full manual control (theme, artist, BPM, lyrics)\n"
+            f"  `/modern` — Random trending song (confirm before generating)\n"
             f"  `/rewrite` — Regenerate the last song with a fresh twist\n"
             f"  `/retry` — Retry after a failed generation\n\n"
+            f"  *During confirmation:* reply *yes* / *no* / *edit*\n"
+            f"  or tap the ✅ ✏️ ❌ buttons\n\n"
+
+            f"🎨 *Style & Preferences*\n"
+            f"  `/setstyle <genre>` — Set your preferred style (e.g. `pop`, `r&b`)\n"
+            f"  `/setstyle clear` — Reset to smart auto-selection\n"
+            f"  `/genres` — List all 24 available styles\n"
+            f"  `/artists` — List all 12 artists\n\n"
+
+            f"💰 *Earnings & Wallet*\n"
+            f"  `/earnings` — Your $BEAT dashboard (songs, earnings, milestones)\n"
+            f"  `/earn` — How to earn more $BEAT\n"
+            f"  `/wallet` — Wallet info + earnings estimate\n"
+            f"  `/setwallet 0x…` — Set your EVM address\n"
+            f"  `/balance` — Check $BEAT token balance on-chain\n\n"
 
             f"📋 *Information*\n"
-            f"  `/genres` — List all available styles\n"
-            f"  `/artists` — List all available artists\n"
             f"  `/history` — Last 10 songs you made\n"
             f"  `/status` — System health & stats\n\n"
 
@@ -2189,14 +2700,9 @@ class SongAgent:
             f"  `/removekey <index>` — Remove a key\n"
             f"  `/rotatekey` — Switch to next key (multi mode)\n\n"
 
-            f"💳 *Wallet*\n"
-            f"  `/wallet` — View wallet info\n"
-            f"  `/setwallet 0x…` — Set your EVM address\n"
-            f"  `/balance` — Check $BEAT token balance\n\n"
-
             f"⚙️ *System*\n"
             f"  `/notifications on|off` — Toggle notifications\n"
-            f"  `/reset` — Clear all memory & history\n"
+            f"  `/reset` — Clear all memory, history & earnings\n"
             f"  `/debug` — Detailed debug info\n\n"
 
             f"🤖 *Autonomous Mode*\n"
@@ -2206,9 +2712,10 @@ class SongAgent:
             f"  `/auto_mode status` — Show current state & stats\n"
             f"  `/auto_mode set interval=20 songs=2` — Configure\n\n"
 
-            f"💡 *Custom Song Example:*\n"
+            f"💡 *Examples:*\n"
+            f"  `happy energetic pop for a workout`  ← just type it!\n"
             f"  `/custom about=summer love /artist=Kira /bpm=120`\n"
-            f"  `/custom about=midnight /lyrics=the stars shine bright /bpm=90`"
+            f"  `/setstyle r&b`  then  `a love song about missing someone`"
         )
 
     def _cmd_status(self):
@@ -2219,6 +2726,7 @@ class SongAgent:
         ae       = self.auto_engine
         auto_s   = (f"🟢 _ON_ (cycle `{ae.cycle_count}`, every `{ae.current_interval}` min)"
                     if ae.active else "🔴 _OFF_")
+        style_s  = f"`{self.preferred_style}`" if self.preferred_style else "_auto_"
 
         self.bot.send(
             f"📊 *System Status*  `v{CFG.AGENT_VERSION}`\n\n"
@@ -2227,9 +2735,15 @@ class SongAgent:
             f"  🔑 API keys:   `{self.audiera.active_count}` active\n"
             f"  🔄 Key mode:   `{self.audiera.mode.upper()}`\n"
             f"  💳 Wallet:     {wallet_s}\n"
+            f"  🎨 Style:      {style_s}\n"
             f"  🤖 Generator:  {gen_s}\n"
             f"  🤖 Auto mode:  {auto_s}\n"
             f"  📢 Notify:     `{'ON' if self.bot.enabled else 'OFF'}`\n\n"
+            f"  💰 *Earnings*\n"
+            f"  💎 Total $BEAT: `{self.earnings.total_beat:,.4f}`\n"
+            f"  🎵 Total songs: `{self.earnings.total_songs}`\n"
+            f"  ⚡ This session: `{self.earnings.session_songs}` songs "
+            f"(`{self.earnings.session_beat:,.4f} $BEAT`)\n\n"
             f"  📈 API calls:  `{self.audiera.metrics['requests']}` total  "
             f"(`{self.audiera.metrics['successes']}` OK, `{self.audiera.metrics['failures']}` failed)"
         )
@@ -2240,12 +2754,14 @@ class SongAgent:
         self._save_dedup()
         self.evolution_stage    = 0
         self.consecutive_fails  = 0
+        self.earnings.reset()
         self.bot.send(
             "🔄 *Full Reset Complete!*\n\n"
             "  ✔  Conversation memory cleared\n"
             "  ✔  Song history cleared\n"
             "  ✔  Duplicate theme list cleared\n"
-            "  ✔  Song counter reset\n\n"
+            "  ✔  Song counter reset\n"
+            "  ✔  Earnings reset\n\n"
             "_Ready for a fresh start!_  Use /song to create your first track."
         )
 
@@ -2261,7 +2777,8 @@ class SongAgent:
                 [[("🎤 View Artists", "/artists"), ("🎸 View Genres", "/genres")]]
             )
             return
-        self._handle_natural_language(args)
+        # Direct creation — never ask for clarification when a description is given
+        self._create_song_direct(args)
 
     def _cmd_rewrite(self):
         if not self.state.last_song_params:
@@ -2273,12 +2790,7 @@ class SongAgent:
         params = self.state.last_song_params
         modifiers = ["redux","v2","remix","fresh take","reimagined","new chapter"]
         new_theme = f"{params['theme']} — {random.choice(modifiers)}"
-        self.bot.send(f"🔄 *Rewriting:* `{params['theme']}`\n\n⏳ Generating…")
-        threading.Thread(
-            target=self._generate_song_async,
-            args=(new_theme, params["styles"], params["artist"]),
-            daemon=True
-        ).start()
+        self._request_confirmation(new_theme, params["styles"], params["artist"])
 
     def _cmd_retry(self):
         if self.consecutive_fails == 0:
@@ -2310,19 +2822,7 @@ class SongAgent:
         theme  = random.choice(themes)
         styles = random.choice(styles_pool)
         artist = random.choice(list(self.artist_ids.keys()))
-        self.state.last_song_params = {"theme": theme, "styles": styles, "artist": artist}
-        self.bot.send(
-            f"🔥 *Modern Mode!*\n\n"
-            f"  🎨 Theme:  `{theme}`\n"
-            f"  🎸 Styles: `{', '.join(styles)}`\n"
-            f"  🎤 Artist: `{artist}`\n\n"
-            f"⏳ Generating…"
-        )
-        threading.Thread(
-            target=self._generate_song_async,
-            args=(theme, styles, artist),
-            daemon=True
-        ).start()
+        self._request_confirmation(theme, styles, artist)
 
     def _cmd_custom(self, args: str):
         if not args:
@@ -2373,30 +2873,14 @@ class SongAgent:
             return
 
         # BPM → styles
-        if bpm < 90:   styles = ["Ambient","Indie"]
+        if bpm < 90:    styles = ["Ambient","Indie"]
         elif bpm < 110: styles = ["R&B","Soul"]
         elif bpm < 130: styles = ["Pop","Electronic"]
         elif bpm < 150: styles = ["Dance","EDM"]
         else:           styles = ["EDM","Techno"]
 
-        self.state.last_song_params = {"theme": theme, "styles": styles,
-                                       "artist": artist, "bpm": bpm, "custom_lyrics": lyrics}
-
-        lyrics_tag = f"  📝 Lyrics:  _custom provided_\n" if lyrics else ""
-        self.bot.send(
-            f"🎵 *Creating Custom Song*\n\n"
-            f"  🎨 Theme:  `{theme}`\n"
-            f"  🎸 Styles: `{', '.join(styles)}`\n"
-            f"  🎤 Artist: `{artist}`\n"
-            f"  🥁 BPM:    `{bpm}`\n"
-            f"{lyrics_tag}\n"
-            f"⏳ Generating…"
-        )
-        threading.Thread(
-            target=self._generate_song_async,
-            args=(theme, styles, artist),
-            daemon=True
-        ).start()
+        # Route through confirmation — show lyrics preview before generating
+        self._request_confirmation(theme, styles, artist, bpm=bpm, custom_lyrics=lyrics)
 
     def _cmd_genres(self):
         styles = getattr(CFG, "AVAILABLE_STYLES", [
@@ -2539,14 +3023,26 @@ class SongAgent:
             )
 
     def _cmd_wallet(self):
-        addr = CFG.EVM_ADDRESS
+        addr     = CFG.EVM_ADDRESS
         has_addr = bool(addr and len(addr) == 42)
+        est_val  = f"{self.earnings.total_beat:,.4f} $BEAT"
+        nm       = self.earnings.next_milestone
+        next_ms  = f"`{nm}` songs" if nm else "all reached 🏆"
+
         self.bot.send(
-            f"💳 *Wallet Info*\n\n"
+            f"💳 *Wallet & Earnings*\n\n"
             f"  Address:  {'`' + addr[:14] + '…`' if has_addr else '_not set_'}\n"
-            f"  Contract: `{CFG.BEAT_CONTRACT[:14]}…`\n"
-            f"  web3:     {'✅ installed' if HAS_WEB3 else '❌ run: pip install web3'}\n\n"
-            f"{'Use `/balance` to check your $BEAT balance.' if has_addr else 'Set your address with `/setwallet 0x…`'}"
+            f"  🌐 Network:  `BNB Chain (BSC) — BEP-20`\n"
+            f"  📦 Contract: `{CFG.BEAT_CONTRACT[:14]}…`\n"
+            f"  🔍 BscScan:  [View Token](https://bscscan.com/token/{CFG.BEAT_CONTRACT})\n"
+            f"  ⚙️  web3:     {'✅ installed' if HAS_WEB3 else '❌ run: pip install web3'}\n\n"
+            f"  💰 *Estimated Earned:* `{est_val}`\n"
+            f"  🎵 Songs generated: `{self.earnings.total_songs}`\n"
+            f"  💸 Rate: `{self.earnings.beat_per_song} $BEAT` per song\n"
+            f"  🎯 Next milestone: {next_ms}\n\n"
+            f"{'Use `/balance` to verify on-chain balance.' if has_addr else 'Set your address with `/setwallet 0x…` to claim rewards.'}\n"
+            f"  `/earnings` — full dashboard\n"
+            f"  `/earn` — how to earn more"
         )
 
     def _cmd_setwallet(self, args: str):
@@ -2571,9 +3067,11 @@ class SongAgent:
         CFG.EVM_ADDRESS = addr
         self._save_wallet_config(addr)
         self.bot.send(
-            f"✅ *Wallet Set!*\n\n"
-            f"  Address: `{addr[:14]}…{addr[-6:]}`\n\n"
-            f"Use `/balance` to check your $BEAT balance."
+            f"✅ *Wallet Set! (BEP-20)*\n\n"
+            f"  💳 Address:  `{addr[:14]}…{addr[-6:]}`\n"
+            f"  🌐 Network:  BNB Chain (BSC)\n"
+            f"  🔍 BscScan: [View address](https://bscscan.com/address/{addr})\n\n"
+            f"Use `/balance` to check your on-chain $BEAT balance."
         )
 
     def _save_wallet_config(self, addr: str):
@@ -2604,32 +3102,50 @@ class SongAgent:
 
         self.bot.send(f"⏳ Checking $BEAT balance for `{addr[:14]}…`")
 
-        rpcs = ["https://eth.llamarpc.com","https://rpc.ankr.com/eth","https://eth.public-rpc.com"]
+        # BNB Chain (BSC) BEP-20 RPC endpoints — loaded from config
+        rpcs = getattr(CFG, "BSC_RPC_ENDPOINTS", [
+            "https://bsc-dataseed1.binance.org",
+            "https://bsc-dataseed2.binance.org",
+            "https://bsc-dataseed3.binance.org",
+            "https://rpc.ankr.com/bsc",
+            "https://bsc.publicnode.com",
+        ])
         for rpc in rpcs:
             try:
                 w3  = Web3(Web3.HTTPProvider(rpc))
                 if not w3.is_address(addr):
-                    self.bot.send("❌ Wallet address failed checksum. Set a valid address with `/setwallet`.")
+                    self.bot.send("❌ Wallet address failed checksum. Set a valid BEP-20 address with `/setwallet`.")
                     return
                 ca  = Web3.to_checksum_address(CFG.BEAT_CONTRACT)
                 wa  = Web3.to_checksum_address(addr)
-                abi = '[{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]'
-                bal = w3.eth.contract(address=ca, abi=abi).functions.balanceOf(wa).call()
+                abi = '[{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"},{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"type":"function"}]'
+                contract = w3.eth.contract(address=ca, abi=abi)
+                try:
+                    decimals = contract.functions.decimals().call()
+                except Exception:
+                    decimals = 18
+                raw_bal = contract.functions.balanceOf(wa).call()
+                bal     = raw_bal / (10 ** decimals)
+                chain_id = w3.eth.chain_id  # 56 = BSC Mainnet
+                network  = "BNB Chain (BSC)" if chain_id == 56 else f"Chain ID {chain_id}"
                 self.bot.send(
-                    f"💰 *$BEAT Balance*\n\n"
-                    f"  Wallet: `{addr[:14]}…{addr[-6:]}`\n"
-                    f"  Balance: `{bal/1e18:,.4f} $BEAT`"
+                    f"💰 *$BEAT Balance (BEP-20)*\n\n"
+                    f"  🌐 Network:  `{network}`\n"
+                    f"  💳 Wallet:   `{addr[:14]}…{addr[-6:]}`\n"
+                    f"  📦 Contract: `{CFG.BEAT_CONTRACT[:14]}…`\n"
+                    f"  💎 Balance:  `{bal:,.4f} $BEAT`\n\n"
+                    f"  🔍 [View on BscScan](https://bscscan.com/token/{CFG.BEAT_CONTRACT}?a={addr})"
                 )
                 return
             except Exception as e:
                 if "429" in str(e) or "rate" in str(e).lower(): continue
                 self.bot.send(
-                    f"❌ *RPC Error*\n\n`{str(e)[:120]}`\n\n"
+                    f"❌ *RPC Error (BSC)*\n\n`{str(e)[:120]}`\n\n"
                     f"Try again in a moment, or check your wallet address."
                 )
                 return
 
-        self.bot.send("⚠️ All RPC providers are rate-limited right now. Try again in a minute.")
+        self.bot.send("⚠️ All BSC RPC providers are rate-limited right now. Try again in a minute.")
 
     def _cmd_notifications(self, args: str):
         if args.strip().lower() in ("off","0","false","no"):
@@ -2660,6 +3176,103 @@ class SongAgent:
             f"  Key mode:      `{self.audiera.mode}`\n"
             f"  Keys total:    `{len(self.audiera.keys)}`\n\n"
             f"  web3:          `{'installed' if HAS_WEB3 else 'NOT installed'}`"
+        )
+
+    def _cmd_earnings(self):
+        """Show the full $BEAT earnings dashboard."""
+        self.bot.send_buttons(
+            self.earnings.summary_text(),
+            [
+                [("💰 Check Balance", "/balance"), ("💡 How to Earn", "/earn")],
+                [("🎵 Create Song", "/song"), ("🤖 Auto Mode On", "/auto_mode on")],
+            ]
+        )
+
+    def _cmd_earn(self):
+        """Show how to earn more $BEAT."""
+        self.bot.send_buttons(
+            self.earnings.earn_guide(),
+            [
+                [("🎵 Create Song Now", "/song"), ("🤖 Auto Mode", "/auto_mode on")],
+                [("📊 My Earnings", "/earnings"), ("💳 My Wallet", "/wallet")],
+            ]
+        )
+
+    def _cmd_style(self, args: str):
+        """Set or clear the preferred style for song generation."""
+        arg = args.strip().lower()
+
+        if not arg:
+            current = f"`{self.preferred_style}`" if self.preferred_style else "_auto (smart selection)_"
+            avail   = ", ".join(f"`{s}`" for s in getattr(CFG, "AVAILABLE_STYLES", [])[:12])
+            self.bot.send(
+                f"🎨 *Preferred Style*\n\n"
+                f"  Current: {current}\n\n"
+                f"  When set, every song you describe will use this style.\n\n"
+                f"  *Usage:* `/setstyle <genre>`\n"
+                f"  *Examples:*\n"
+                f"    `/setstyle r&b`\n"
+                f"    `/setstyle pop`\n"
+                f"    `/setstyle lo-fi`\n"
+                f"    `/setstyle clear` — reset to auto\n\n"
+                f"  *Available:* {avail}…\n"
+                f"  See full list: `/genres`"
+            )
+            return
+
+        if arg in ("clear", "reset", "none", "auto", "off"):
+            self.preferred_style = ""
+            # Persist to config
+            try:
+                cfg_path = BASE_DIR / "config.py"
+                content  = cfg_path.read_text("utf-8")
+                content  = re.sub(r'PREFERRED_STYLE\s*=\s*"[^"]*"',
+                                  'PREFERRED_STYLE = ""', content)
+                cfg_path.write_text(content, "utf-8")
+            except Exception:
+                pass
+            self.bot.send(
+                "🎨 *Style Reset!*\n\n"
+                "Back to smart auto-selection — I'll pick the best style for each description.\n\n"
+                "_Use `/setstyle <genre>` to set a preference._"
+            )
+            return
+
+        # Validate / fuzzy match
+        available = [s.lower() for s in getattr(CFG, "AVAILABLE_STYLES", [])]
+        genre_map = {s.lower(): s for s in getattr(CFG, "AVAILABLE_STYLES", [])}
+        # also check _GENRE_STYLES keys for aliases
+        all_known = list(genre_map.keys()) + list(self._GENRE_STYLES.keys())
+
+        matched = None
+        for key in all_known:
+            if arg == key or arg in key or key in arg:
+                matched = genre_map.get(key) or key.capitalize()
+                break
+
+        if not matched:
+            self.bot.send(
+                f"❌ *Style `{arg}` not recognized.*\n\n"
+                f"Use `/genres` to see all available styles.\n"
+                f"Example: `/setstyle pop`  or  `/setstyle r&b`"
+            )
+            return
+
+        self.preferred_style = matched
+        try:
+            cfg_path = BASE_DIR / "config.py"
+            content  = cfg_path.read_text("utf-8")
+            content  = re.sub(r'PREFERRED_STYLE\s*=\s*"[^"]*"',
+                              f'PREFERRED_STYLE = "{matched}"', content)
+            cfg_path.write_text(content, "utf-8")
+        except Exception:
+            pass
+
+        self.bot.send(
+            f"🎨 *Style Set to `{matched}`!*\n\n"
+            f"All future songs will use `{matched}` style.\n\n"
+            f"_Try it now:_ just describe a song theme and I'll apply `{matched}` automatically.\n"
+            f"Use `/setstyle clear` to reset."
         )
 
     def _cmd_auto_mode(self, args: str):
